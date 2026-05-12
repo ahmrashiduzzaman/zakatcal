@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="bn" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="theme-color" content="#0C1E13" />
+  <meta name="description" content="আস-সুন্নাহ ফাউন্ডেশনের AI-চালিত যাকাত ক্যালকুলেটর" />
+  <title>স্মার্ট যাকাত সহায়ক — আস-সুন্নাহ ফাউন্ডেশন</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet" />
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body,#root{height:100%;width:100%}
+    body{
+      font-family:'Hind Siliguri','Noto Sans Bengali',sans-serif;
+      background:#0C1E13;color:#F0EBE0;
+      overflow:hidden;-webkit-font-smoothing:antialiased;
+      -webkit-tap-highlight-color:transparent;
+    }
+    ::-webkit-scrollbar{width:3px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(212,168,67,.35);border-radius:3px}
+    textarea{resize:none;outline:none;border:none;background:none;font-family:inherit}
+    textarea::placeholder{opacity:.55}
+    input{font-family:inherit}
+    button{cursor:pointer;font-family:inherit;border:none}
+    a{color:inherit;text-decoration:none}
+
+    @keyframes bounce{0%,100%{transform:translateY(0);opacity:.35}50%{transform:translateY(-6px);opacity:1}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(239,83,80,.5)}70%{box-shadow:0 0 0 10px rgba(239,83,80,0)}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes goldGlow{0%,100%{box-shadow:0 0 24px rgba(212,168,67,.2)}50%{box-shadow:0 0 40px rgba(212,168,67,.45)}}
+    @keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+    @keyframes modalIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+
+    .msg-ai{animation:slideIn .35s ease both}
+    .msg-user{animation:fadeUp .25s ease both}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+/* ── Palette ── */
+const C={
+  bg:'#0C1E13',bgMid:'#112518',
+  panel:'rgba(255,255,255,.06)',panelBd:'rgba(212,168,67,.2)',
+  green:'#1A5230',greenLt:'#28754A',
+  gold:'#D4A843',goldLt:'#EAC96A',
+  text:'#F0EBE0',muted:'#8AAD96',
+  userBub:'#163E27',aiBub:'rgba(255,255,255,.07)',
+  red:'#EF5350',success:'#4CAF50',
+  overlay:'rgba(0,0,0,.75)',
+};
+const FF="'Hind Siliguri',sans-serif";
+
+/* ── Islamic SVG pattern ── */
+const ISO=encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><path d='M60 4L116 60L60 116L4 60Z' fill='none' stroke='rgba(212,168,67,0.07)' stroke-width='1'/><path d='M60 18L102 60L60 102L18 60Z' fill='none' stroke='rgba(212,168,67,0.05)' stroke-width='1'/><circle cx='60' cy='60' r='22' fill='none' stroke='rgba(212,168,67,0.04)' stroke-width='1'/></svg>`);
+const PATTERN=`url("data:image/svg+xml,${ISO}")`;
+
+/* ── Constants ── */
+const GOLD_PG=8000, SILVER_PG=100;
+const NISAB=Math.round(612.36*SILVER_PG);
+const NISAB_AU=Math.round(87.48*GOLD_PG);
+const LS_KEY='asf_zakat_apikey';
+
+/* ── System Prompt ── */
+const SYS=`আপনি "যাকাত সহায়ক" — আস-সুন্নাহ ফাউন্ডেশনের AI যাকাত বিশেষজ্ঞ। আপনি বিনয়ী, উষ্ণ এবং সংক্ষিপ্ত।
+
+বর্তমান আনুমানিক বাজারমূল্য (বাংলাদেশ):
+• স্বর্ণ (২২ ক্যারেট): ৳৮,০০০/গ্রাম | রূপা: ৳১০০/গ্রাম
+• নিসাব (রূপা ৬১২.৩৬ গ্রাম): ৳৬১,২৩৬ | যাকাতের হার: ২.৫%
+
+কথোপকথনের নিয়ম:
+১. সবসময় বাংলায় কথা বলুন
+২. একবারে একটি মাত্র প্রশ্ন
+৩. উত্তর সর্বোচ্চ ২-৩ লাইন
+৪. মৌখিক সংখ্যা বুঝুন: পঞ্চাশ হাজার=50000, পাঁচ লক্ষ=500000, এক কোটি=10000000
+৫. "নেই/না/নাই" শুনলে পরের প্রশ্নে চলে যান
+৬. প্রথম বার্তায় উষ্ণ সালাম ও সংক্ষিপ্ত পরিচয় দিন
+
+সম্পদ সংগ্রহের ক্রম:
+১. নগদ টাকা ও ব্যাংক ব্যালেন্স
+২. স্বর্ণ → পরিমাণ → "নিয়মিত পরেন নাকি তুলে রাখা?"
+৩. রূপা | ৪. ব্যবসায়িক পণ্য | ৫. শেয়ার ও বিনিয়োগ
+৬. সঞ্চয়পত্র/FDR (শুধু মূলধন) | ৭. পাওনা টাকা | ৮. ঋণ ও দায়
+
+শরিয়াহ: হানাফি মাযহাবে নিয়মিত পরার গহনায় যাকাত নেই। সঞ্চয়পত্রের মুনাফা গণনায় নেই।
+
+সব তথ্য শেষে শুধু এই JSON দিন:
+##ZAKAT_RESULT##
+{"cash":0,"gold":0,"silver":0,"business":0,"stocks":0,"savings":0,"receivables":0,"liabilities":0,"net":0,"qualified":true,"zakat":0,"msg":"আলহামদুলিল্লাহ! হিসাব সম্পন্ন।"}
+##ZAKAT_RESULT##`;
+
+/* ── Helpers ── */
+const fmtBDT=n=>{
+  if(!n||isNaN(n))return'৳০';
+  const v=Math.abs(Math.round(n));
+  if(v>=10000000)return`৳${(v/10000000).toFixed(2)} কোটি`;
+  if(v>=100000)return`৳${(v/100000).toFixed(2)} লক্ষ`;
+  if(v>=1000)return`৳${(v/1000).toFixed(1)} হাজার`;
+  return`৳${v.toLocaleString('en-IN')}`;
+};
+
+/* ── Direct Anthropic API call (no backend needed) ── */
+const callAPI=async(messages,apiKey)=>{
+  const res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',
+      max_tokens:600,
+      system:SYS,
+      messages
+    })
+  });
+  if(!res.ok){
+    const err=await res.json().catch(()=>({}));
+    throw new Error(err?.error?.message||`HTTP ${res.status}`);
+  }
+  const d=await res.json();
+  return d.content[0].text;
+};
+
+/* ══════════════════════════════
+   API KEY SETUP MODAL
+══════════════════════════════ */
+function KeyModal({onSave}){
+  const[key,setKey]=useState('');
+  const[err,setErr]=useState('');
+  const[testing,setTest]=useState(false);
+
+  const handleSave=async()=>{
+    if(!key.trim().startsWith('sk-ant-')){
+      setErr('সঠিক API Key নয়। "sk-ant-" দিয়ে শুরু হওয়া Key দিন।');
+      return;
+    }
+    setTest(true);setErr('');
+    try{
+      await callAPI([{role:'user',content:'ping'}],key.trim());
+      localStorage.setItem(LS_KEY,key.trim());
+      onSave(key.trim());
+    }catch(e){
+      setErr(`Key কাজ করছে না: ${e.message}`);
+    }
+    setTest(false);
+  };
+
+  return(
+    <div style={{
+      position:'fixed',inset:0,
+      background:C.overlay,backdropFilter:'blur(8px)',
+      display:'flex',alignItems:'center',justifyContent:'center',
+      zIndex:100,padding:'20px'
+    }}>
+      <div style={{
+        background:'#162B1D',
+        border:`1.5px solid ${C.gold}`,
+        borderRadius:'20px',
+        padding:'28px 24px',
+        width:'100%',maxWidth:'380px',
+        animation:'modalIn .3s ease'
+      }}>
+        <div style={{textAlign:'center',marginBottom:'22px'}}>
+          <div style={{fontSize:'36px',marginBottom:'10px'}}>🔑</div>
+          <h2 style={{fontSize:'18px',fontWeight:700,color:C.text,marginBottom:'6px'}}>
+            API Key সেটআপ
+          </h2>
+          <p style={{fontSize:'12px',color:C.muted,lineHeight:1.7}}>
+            একবার সেট করলেই চলবে। এটি শুধু আপনার এই ডিভাইসে সংরক্ষিত থাকবে।
+          </p>
+        </div>
+
+        {/* Steps */}
+        <div style={{
+          background:C.panel,border:`1px solid ${C.panelBd}`,
+          borderRadius:'12px',padding:'14px',marginBottom:'18px',
+          fontSize:'12px',color:C.muted,lineHeight:1.9
+        }}>
+          <strong style={{color:C.gold}}>API Key পাওয়ার উপায়:</strong><br/>
+          ১. console.anthropic.com → লগইন করুন<br/>
+          ২. <strong style={{color:C.text}}>API Keys</strong> → <strong style={{color:C.text}}>Create Key</strong><br/>
+          ৩. Key টি কপি করে নিচে পেস্ট করুন
+        </div>
+
+        <input
+          type="password"
+          value={key}
+          onChange={e=>setKey(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&handleSave()}
+          placeholder="sk-ant-api03-..."
+          style={{
+            width:'100%',padding:'13px 16px',
+            borderRadius:'12px',
+            border:`1px solid ${err?C.red:C.panelBd}`,
+            background:'rgba(255,255,255,.05)',
+            color:C.text,fontSize:'13px',
+            fontFamily:"monospace",
+            marginBottom:'8px',outline:'none'
+          }}
+        />
+
+        {err&&(
+          <p style={{color:C.red,fontSize:'12px',marginBottom:'10px',lineHeight:1.5}}>
+            ⚠️ {err}
+          </p>
+        )}
+
+        <button onClick={handleSave} disabled={testing||!key.trim()} style={{
+          width:'100%',padding:'14px',
+          borderRadius:'50px',
+          background:key.trim()&&!testing
+            ?`linear-gradient(135deg,${C.gold} 0%,#9F6A18 100%)`
+            :'rgba(212,168,67,.3)',
+          color:'#0C1E13',fontSize:'15px',fontWeight:700,
+          fontFamily:FF,
+          display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'
+        }}>
+          {testing?(
+            <>
+              <span style={{
+                width:'16px',height:'16px',
+                border:'2px solid rgba(12,30,19,.3)',
+                borderTopColor:'#0C1E13',borderRadius:'50%',
+                animation:'spin .7s linear infinite',display:'inline-block'
+              }}/>
+              যাচাই হচ্ছে…
+            </>
+          ):'সেভ করুন ও শুরু করুন →'}
+        </button>
+
+        <p style={{
+          textAlign:'center',marginTop:'14px',
+          fontSize:'11px',color:C.muted,opacity:.7,lineHeight:1.6
+        }}>
+          🔒 Key টি শুধু আপনার ব্রাউজারে সংরক্ষিত।<br/>
+          কোনো সার্ভারে যায় না।
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════
+   SPLASH SCREEN
+══════════════════════════════ */
+function Splash({onStart,busy,onResetKey}){
+  return(
+    <div style={{
+      height:'100vh',display:'flex',flexDirection:'column',
+      alignItems:'center',justifyContent:'center',
+      background:C.bgMid,backgroundImage:PATTERN,backgroundSize:'120px 120px',
+      padding:'24px 20px',position:'relative',overflow:'hidden'
+    }}>
+      <div style={{position:'absolute',top:0,left:0,right:0,height:'2px',
+        background:`linear-gradient(90deg,transparent,${C.gold},transparent)`}}/>
+      <div style={{position:'absolute',bottom:0,left:0,right:0,height:'2px',
+        background:`linear-gradient(90deg,transparent,${C.gold},transparent)`}}/>
+
+      <div style={{width:'100%',maxWidth:'360px',textAlign:'center'}}>
+        <div style={{
+          fontFamily:"'Amiri',serif",fontSize:'26px',
+          color:C.gold,marginBottom:'28px',direction:'rtl',letterSpacing:'1px',opacity:.9
+        }}>
+          بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
+        </div>
+
+        <div style={{
+          width:'90px',height:'90px',borderRadius:'50%',
+          border:`1.5px solid ${C.panelBd}`,background:C.panel,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          margin:'0 auto 22px',fontSize:'42px',
+          animation:'goldGlow 3s ease-in-out infinite'
+        }}>🌙</div>
+
+        <p style={{fontSize:'10px',letterSpacing:'4px',color:C.gold,
+          textTransform:'uppercase',marginBottom:'10px',opacity:.75}}>
+          আস-সুন্নাহ ফাউন্ডেশন
+        </p>
+
+        <h1 style={{fontSize:'36px',fontWeight:700,color:C.text,
+          lineHeight:1.15,marginBottom:'14px'}}>
+          স্মার্ট যাকাত<br/>
+          <span style={{color:C.gold}}>সহায়ক</span>
+        </h1>
+
+        <p style={{color:C.muted,fontSize:'14px',lineHeight:1.75,marginBottom:'36px'}}>
+          কথোপকথনের মাধ্যমে সহজে যাকাত হিসাব করুন।<br/>
+          বাংলায় কথা বলুন বা টাইপ করুন।
+        </p>
+
+        <button onClick={onStart} disabled={busy} style={{
+          width:'100%',padding:'17px 0',borderRadius:'50px',
+          background:busy?'rgba(212,168,67,.38)'
+            :`linear-gradient(135deg,${C.gold} 0%,#9F6A18 100%)`,
+          color:'#0C1E13',fontSize:'17px',fontWeight:700,fontFamily:FF,
+          display:'flex',alignItems:'center',justifyContent:'center',gap:'10px'
+        }}>
+          {busy?(
+            <>
+              <span style={{width:'18px',height:'18px',
+                border:'2.5px solid rgba(12,30,19,.35)',
+                borderTopColor:'#0C1E13',borderRadius:'50%',
+                animation:'spin .7s linear infinite',display:'inline-block'}}/>
+              শুরু হচ্ছে...
+            </>
+          ):'শুরু করুন →'}
+        </button>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px',marginTop:'28px'}}>
+          {[{icon:'🎙️',text:'ভয়েস ইনপুট'},{icon:'🤖',text:'AI চালিত'},{icon:'📖',text:'শরিয়াহ সম্মত'}]
+            .map(f=>(
+              <div key={f.text} style={{
+                background:C.panel,border:`1px solid ${C.panelBd}`,
+                borderRadius:'12px',padding:'12px 4px',textAlign:'center'
+              }}>
+                <div style={{fontSize:'20px',marginBottom:'5px'}}>{f.icon}</div>
+                <div style={{fontSize:'11px',color:C.muted,lineHeight:1.3}}>{f.text}</div>
+              </div>
+            ))}
+        </div>
+
+        <button onClick={onResetKey} style={{
+          marginTop:'24px',background:'none',
+          color:C.muted,fontSize:'11px',opacity:.6,
+          padding:'6px 12px'
+        }}>
+          🔑 API Key পরিবর্তন করুন
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════
+   CHAT SCREEN
+══════════════════════════════ */
+function ChatScreen({messages,input,setInput,loading,recording,onSend,onRecord,bottomRef}){
+  const CHIPS=[
+    {label:'হ্যাঁ, আছে',val:'হ্যাঁ আছে'},
+    {label:'নেই',val:'না, নেই'},
+    {label:'জানি না',val:'সঠিক জানি না'},
+    {label:'পরবর্তী',val:'পরের প্রশ্নে যান'},
+  ];
+
+  return(
+    <div style={{
+      height:'100vh',display:'flex',flexDirection:'column',
+      background:C.bg,backgroundImage:PATTERN,backgroundSize:'120px 120px'
+    }}>
+      <div style={{
+        background:'rgba(12,30,19,.92)',backdropFilter:'blur(14px)',
+        borderBottom:`1px solid ${C.panelBd}`,
+        padding:'12px 16px',
+        display:'flex',alignItems:'center',gap:'12px',flexShrink:0
+      }}>
+        <div style={{
+          width:'44px',height:'44px',borderRadius:'50%',
+          background:`linear-gradient(135deg,${C.gold} 0%,#4A8A3C 100%)`,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          fontSize:'22px',flexShrink:0
+        }}>🌙</div>
+        <div>
+          <div style={{fontSize:'15px',fontWeight:600,color:C.text}}>যাকাত সহায়ক</div>
+          <div style={{fontSize:'11px',color:C.success,display:'flex',alignItems:'center',gap:'5px'}}>
+            <span style={{width:'6px',height:'6px',background:C.success,borderRadius:'50%',
+              display:'inline-block',boxShadow:`0 0 5px ${C.success}`}}/>
+            অনলাইন
+          </div>
+        </div>
+        <div style={{marginLeft:'auto',textAlign:'right',fontSize:'10px',color:C.muted,opacity:.7,lineHeight:1.5}}>
+          আস-সুন্নাহ<br/>ফাউন্ডেশন
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'16px',
+        display:'flex',flexDirection:'column',gap:'14px'}}>
+        {messages.map((m,i)=>(
+          <div key={i} className={m.from==='ai'?'msg-ai':'msg-user'} style={{
+            display:'flex',
+            justifyContent:m.from==='user'?'flex-end':'flex-start',
+            alignItems:'flex-end',gap:'8px'
+          }}>
+            {m.from==='ai'&&(
+              <div style={{
+                width:'32px',height:'32px',borderRadius:'50%',flexShrink:0,
+                background:`linear-gradient(135deg,${C.gold} 0%,#4A8A3C 100%)`,
+                display:'flex',alignItems:'center',justifyContent:'center',fontSize:'15px'
+              }}>🌙</div>
+            )}
+            <div style={{
+              maxWidth:'80%',
+              background:m.from==='ai'?C.aiBub:C.userBub,
+              border:`1px solid ${m.from==='ai'?'rgba(255,255,255,.09)':'rgba(212,168,67,.22)'}`,
+              borderRadius:m.from==='ai'?'18px 18px 18px 5px':'18px 18px 5px 18px',
+              padding:'12px 16px',
+              fontSize:'14px',lineHeight:1.7,color:C.text,
+              whiteSpace:'pre-wrap',backdropFilter:'blur(6px)'
+            }}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+
+        {loading&&(
+          <div className="msg-ai" style={{display:'flex',alignItems:'flex-end',gap:'8px'}}>
+            <div style={{
+              width:'32px',height:'32px',borderRadius:'50%',flexShrink:0,
+              background:`linear-gradient(135deg,${C.gold} 0%,#4A8A3C 100%)`,
+              display:'flex',alignItems:'center',justifyContent:'center',fontSize:'15px'
+            }}>🌙</div>
+            <div style={{
+              background:C.aiBub,backdropFilter:'blur(6px)',
+              border:'1px solid rgba(255,255,255,.09)',
+              borderRadius:'18px 18px 18px 5px',
+              padding:'15px 20px',display:'flex',gap:'5px',alignItems:'center'
+            }}>
+              {[0,1,2].map(j=>(
+                <span key={j} style={{
+                  width:'7px',height:'7px',background:C.muted,borderRadius:'50%',
+                  display:'block',
+                  animation:`bounce 1.2s ease-in-out ${j*.18}s infinite`
+                }}/>
+              ))}
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+
+      {!loading&&messages.length>0&&(
+        <div style={{padding:'0 12px 10px',display:'flex',gap:'7px',
+          overflowX:'auto',scrollbarWidth:'none',flexShrink:0}}>
+          {CHIPS.map(c=>(
+            <button key={c.val} onClick={()=>onSend(c.val)} style={{
+              background:C.panel,border:`1px solid ${C.panelBd}`,
+              borderRadius:'20px',padding:'6px 14px',
+              color:C.gold,fontSize:'12px',fontFamily:FF,
+              whiteSpace:'nowrap',flexShrink:0
+            }}>{c.label}</button>
+          ))}
+        </div>
+      )}
+
+      <div style={{
+        background:'rgba(12,30,19,.95)',backdropFilter:'blur(14px)',
+        borderTop:`1px solid ${C.panelBd}`,
+        padding:'10px 12px',
+        paddingBottom:'max(10px, env(safe-area-inset-bottom))',
+        flexShrink:0
+      }}>
+        {recording&&(
+          <div style={{textAlign:'center',color:C.red,fontSize:'12px',marginBottom:'7px',
+            display:'flex',alignItems:'center',justifyContent:'center',gap:'6px'}}>
+            <span style={{width:'8px',height:'8px',background:C.red,borderRadius:'50%',
+              display:'inline-block',animation:'pulse 1s infinite'}}/>
+            রেকর্ড হচ্ছে… কথা বলুন
+          </div>
+        )}
+        <div style={{display:'flex',gap:'8px',alignItems:'flex-end'}}>
+          <button onClick={onRecord} style={{
+            width:'48px',height:'48px',borderRadius:'50%',
+            background:recording?'rgba(239,83,80,.18)':C.panel,
+            border:`1.5px solid ${recording?C.red:C.panelBd}`,
+            color:recording?C.red:C.gold,
+            fontSize:'20px',flexShrink:0,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            transition:'all .2s'
+          }}>🎙️</button>
+
+          <textarea
+            value={input}
+            onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();onSend(input);}}}
+            placeholder="বাংলায় লিখুন বা মাইক্রোফোন ব্যবহার করুন…"
+            rows={1}
+            style={{
+              flex:1,background:C.panel,border:`1px solid ${C.panelBd}`,
+              borderRadius:'24px',padding:'12px 16px',
+              color:C.text,fontSize:'14px',fontFamily:FF,
+              lineHeight:1.55,minHeight:'48px',maxHeight:'120px',overflowY:'auto'
+            }}
+          />
+
+          <button onClick={()=>onSend(input)} disabled={!input.trim()||loading} style={{
+            width:'48px',height:'48px',borderRadius:'50%',border:'none',
+            background:input.trim()&&!loading
+              ?`linear-gradient(135deg,${C.gold} 0%,#9F6A18 100%)`
+              :C.panel,
+            color:input.trim()&&!loading?'#0C1E13':C.muted,
+            fontSize:'19px',flexShrink:0,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            transition:'all .2s'
+          }}>➤</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════
+   RESULT SCREEN
+══════════════════════════════ */
+function ResultScreen({result,onReset}){
+  const q=result.qualified, net=result.net||0, zakat=result.zakat||0;
+  const rows=[
+    {label:'নগদ ও ব্যাংক',val:result.cash,icon:'💵'},
+    {label:'স্বর্ণ',val:result.gold,icon:'🥇'},
+    {label:'রূপা',val:result.silver,icon:'🥈'},
+    {label:'ব্যবসায়িক পণ্য',val:result.business,icon:'📦'},
+    {label:'শেয়ার/বিনিয়োগ',val:result.stocks,icon:'📈'},
+    {label:'সঞ্চয়পত্র/FDR',val:result.savings,icon:'🏦'},
+    {label:'পাওনা টাকা',val:result.receivables,icon:'🤝'},
+  ].filter(r=>r.val>0);
+
+  return(
+    <div style={{minHeight:'100vh',overflowY:'auto',
+      background:C.bg,backgroundImage:PATTERN,backgroundSize:'120px 120px',
+      padding:'20px 16px 32px'}}>
+      <div style={{maxWidth:'420px',margin:'0 auto'}}>
+
+        <div style={{textAlign:'center',paddingTop:'20px',marginBottom:'26px'}}>
+          <div style={{fontSize:'54px',marginBottom:'14px'}}>{q?'✅':'ℹ️'}</div>
+          <h2 style={{fontSize:'23px',fontWeight:700,color:C.text,marginBottom:'7px'}}>
+            {q?'যাকাত ফরজ হয়েছে':'যাকাত ফরজ নয়'}
+          </h2>
+          <p style={{color:C.muted,fontSize:'13px',lineHeight:1.7}}>
+            {q?`নিসাব পূরণ হয়েছে। নিট সম্পদ: ${fmtBDT(net)}`
+              :`আপনার সম্পদ নিসাব (${fmtBDT(NISAB)}) অতিক্রম করেনি`}
+          </p>
+        </div>
+
+        {q&&(
+          <div style={{
+            borderRadius:'20px',border:`1.5px solid ${C.gold}`,
+            background:'linear-gradient(135deg,#163E27 0%,#23623B 100%)',
+            padding:'28px 24px',textAlign:'center',
+            marginBottom:'16px',animation:'goldGlow 3s ease-in-out infinite'
+          }}>
+            <p style={{fontSize:'10px',letterSpacing:'3px',color:C.gold,marginBottom:'10px',opacity:.85}}>
+              প্রদেয় যাকাত (২.৫%)
+            </p>
+            <div style={{fontSize:'46px',fontWeight:700,color:C.goldLt,lineHeight:1}}>
+              {fmtBDT(zakat)}
+            </div>
+            <div style={{fontSize:'13px',color:C.muted,marginTop:'8px'}}>
+              = ৳{Math.round(zakat).toLocaleString('en-IN')} টাকা
+            </div>
+          </div>
+        )}
+
+        {rows.length>0&&(
+          <div style={{background:C.panel,border:`1px solid ${C.panelBd}`,
+            borderRadius:'16px',padding:'16px 18px',marginBottom:'14px'}}>
+            <p style={{fontSize:'10px',letterSpacing:'2.5px',color:C.gold,marginBottom:'14px',opacity:.8}}>
+              সম্পদের বিবরণ
+            </p>
+            {rows.map((r,i)=>(
+              <div key={r.label} style={{
+                display:'flex',justifyContent:'space-between',
+                alignItems:'center',padding:'9px 0',
+                borderBottom:i<rows.length-1?'1px solid rgba(255,255,255,.06)':'none'
+              }}>
+                <div style={{display:'flex',alignItems:'center',gap:'9px'}}>
+                  <span style={{fontSize:'16px'}}>{r.icon}</span>
+                  <span style={{color:C.muted,fontSize:'13px'}}>{r.label}</span>
+                </div>
+                <span style={{color:C.text,fontSize:'14px',fontWeight:600}}>{fmtBDT(r.val)}</span>
+              </div>
+            ))}
+            {result.liabilities>0&&(
+              <>
+                <div style={{borderTop:'1px solid rgba(255,255,255,.1)',margin:'10px 0'}}/>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'7px 0'}}>
+                  <span style={{color:C.red,fontSize:'13px'}}>ঋণ বাদ</span>
+                  <span style={{color:C.red,fontSize:'13px',fontWeight:600}}>−{fmtBDT(result.liabilities)}</span>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'7px 0'}}>
+                  <span style={{color:C.text,fontSize:'14px',fontWeight:600}}>নিট সম্পদ</span>
+                  <span style={{color:C.goldLt,fontSize:'14px',fontWeight:700}}>{fmtBDT(net)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <div style={{background:C.panel,border:`1px solid ${C.panelBd}`,
+          borderRadius:'12px',padding:'12px 16px',marginBottom:'20px',
+          fontSize:'12px',color:C.muted,lineHeight:1.75}}>
+          📌 <strong style={{color:C.text}}>নিসাব তথ্য</strong><br/>
+          রূপার নিসাব: {fmtBDT(NISAB)} | স্বর্ণের নিসাব: {fmtBDT(NISAB_AU)}<br/>
+          ⚠️ এটি আনুমানিক হিসাব। চূড়ান্ত নিশ্চয়তার জন্য আলেমের পরামর্শ নিন।
+        </div>
+
+        {q&&(
+          <a href="https://assunnahfoundation.org/donate" target="_blank" rel="noopener noreferrer"
+            style={{
+              display:'block',width:'100%',
+              background:`linear-gradient(135deg,${C.gold} 0%,#9F6A18 100%)`,
+              color:'#0C1E13',borderRadius:'50px',padding:'16px',
+              fontSize:'16px',fontWeight:700,textAlign:'center',
+              fontFamily:FF,marginBottom:'12px'
+            }}>
+            যাকাত প্রদান করুন →
+          </a>
+        )}
+
+        <button onClick={onReset} style={{
+          width:'100%',padding:'15px',background:C.panel,
+          border:`1px solid ${C.panelBd}`,borderRadius:'50px',
+          color:C.text,fontSize:'15px',fontFamily:FF,marginBottom:'16px'
+        }}>↩ আবার হিসাব করুন</button>
+
+        <a href="https://wa.me/8801898773802" target="_blank" rel="noopener noreferrer"
+          style={{
+            display:'flex',alignItems:'center',justifyContent:'center',gap:'8px',
+            padding:'12px',borderRadius:'12px',
+            background:'rgba(37,211,102,.1)',border:'1px solid rgba(37,211,102,.25)',
+            color:'#25D366',fontSize:'13px',fontFamily:FF
+          }}>
+          💬 WhatsApp-এ আলেমের পরামর্শ নিন
+        </a>
+
+        <p style={{textAlign:'center',marginTop:'20px',fontSize:'11px',color:C.muted,opacity:.6}}>
+          আস-সুন্নাহ ফাউন্ডেশন | স্মার্ট যাকাত সহায়ক
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════
+   MAIN APP
+══════════════════════════════ */
+function App(){
+  const[screen,setScreen]=useState('splash');
+  const[apiKey,setApiKey]=useState(()=>localStorage.getItem(LS_KEY)||'');
+  const[showKeyModal,setShowKeyModal]=useState(false);
+  const[msgs,setMsgs]   =useState([]);
+  const[input,setInput] =useState('');
+  const[loading,setLoad]=useState(false);
+  const[recording,setRec]=useState(false);
+  const[result,setResult]=useState(null);
+  const[history,setHist]=useState([]);
+  const[initBusy,setIB] =useState(false);
+
+  const bottomRef=useRef(null);
+  const recRef   =useRef(null);
+
+  // Show key modal if no key saved
+  useEffect(()=>{
+    if(!localStorage.getItem(LS_KEY)) setShowKeyModal(true);
+  },[]);
+
+  useEffect(()=>{
+    const t=setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:'smooth'}),90);
+    return()=>clearTimeout(t);
+  },[msgs,loading]);
+
+  const handleKeySave=useCallback((k)=>{
+    setApiKey(k);
+    setShowKeyModal(false);
+  },[]);
+
+  const startChat=useCallback(async()=>{
+    if(!apiKey){setShowKeyModal(true);return;}
+    setIB(true);setScreen('chat');setLoad(true);
+    const init=[{role:'user',content:'যাকাত হিসাব করতে চাই'}];
+    try{
+      const reply=await callAPI(init,apiKey);
+      setMsgs([{from:'ai',text:reply}]);
+      setHist([...init,{role:'assistant',content:reply}]);
+    }catch(e){
+      if(e.message.includes('401')||e.message.includes('auth')){
+        setShowKeyModal(true);
+        setScreen('splash');
+      }else{
+        const fb='আস্সালামু আলাইকুম! আমি আপনার যাকাত হিসাব করতে সাহায্য করব।\n\nপ্রথমে বলুন—নগদ ও ব্যাংকে মোট কত টাকা আছে?';
+        setMsgs([{from:'ai',text:fb}]);
+        setHist([...init,{role:'assistant',content:fb}]);
+      }
+    }
+    setLoad(false);setIB(false);
+  },[apiKey]);
+
+  const sendMsg=useCallback(async(text)=>{
+    if(!text?.trim()||loading)return;
+    const t=text.trim();
+    setMsgs(m=>[...m,{from:'user',text:t}]);
+    setInput('');setLoad(true);
+    const nh=[...history,{role:'user',content:t}];
+    try{
+      const reply=await callAPI(nh,apiKey);
+      const match=reply.match(/##ZAKAT_RESULT##\s*([\s\S]*?)\s*##ZAKAT_RESULT##/);
+      if(match){
+        try{
+          const data=JSON.parse(match[1]);
+          setResult(data);
+          setMsgs(m=>[...m,{from:'ai',text:data.msg||'আলহামদুলিল্লাহ! হিসাব সম্পন্ন।'}]);
+          setTimeout(()=>setScreen('result'),2200);
+          setHist([...nh,{role:'assistant',content:reply}]);
+          setLoad(false);return;
+        }catch{}
+      }
+      setMsgs(m=>[...m,{from:'ai',text:reply}]);
+      setHist([...nh,{role:'assistant',content:reply}]);
+    }catch(e){
+      setMsgs(m=>[...m,{from:'ai',text:'দুঃখিত, সমস্যা হচ্ছে। আবার চেষ্টা করুন।'}]);
+    }
+    setLoad(false);
+  },[history,loading,apiKey]);
+
+  const toggleVoice=useCallback(()=>{
+    if(recording){recRef.current?.stop();setRec(false);return;}
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){alert('ভয়েস ইনপুটের জন্য Chrome ব্যবহার করুন।');return;}
+    const r=new SR();
+    r.lang='bn-BD';r.continuous=false;r.interimResults=true;
+    r.onresult=e=>setInput(Array.from(e.results).map(x=>x[0].transcript).join(''));
+    r.onend=()=>setRec(false);r.onerror=()=>setRec(false);
+    r.start();recRef.current=r;setRec(true);
+  },[recording]);
+
+  return(
+    <>
+      {showKeyModal&&<KeyModal onSave={handleKeySave}/>}
+
+      {screen==='splash'&&<Splash
+        onStart={startChat} busy={initBusy}
+        onResetKey={()=>setShowKeyModal(true)}
+      />}
+
+      {screen==='chat'&&!showKeyModal&&(
+        <ChatScreen
+          messages={msgs} input={input} setInput={setInput}
+          loading={loading} recording={recording}
+          onSend={sendMsg} onRecord={toggleVoice}
+          bottomRef={bottomRef}
+        />
+      )}
+
+      {screen==='result'&&result&&(
+        <ResultScreen result={result} onReset={()=>{
+          setScreen('splash');setMsgs([]);setHist([]);setResult(null);
+        }}/>
+      )}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
